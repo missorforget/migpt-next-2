@@ -5,36 +5,105 @@ function isXiaoAIAnswerFailure(text) {
 }
 
 /**
+ * 让消息来源的音箱播报一段文字
+ *
+ * 优先走引擎的 say()：它会按音箱型号自动选择正确的 TTS 指令
+ * （LX01 / S12A 是 [5, 1]，LX06/L09A/X08A/X08E/智能家庭屏 等是 [5, 3]），
+ * 老版本引擎没有 say() 时，回退到该型号的 TTS 指令（再兜底 [5, 3]）。
+ */
+async function speak(engine, msg, text) {
+  const did = msg.metadata?.did;
+  if (typeof engine.say === 'function') {
+    return engine.say(text, did);
+  }
+  const MiOT = typeof engine.getMiOT === 'function' ? engine.getMiOT(did) : engine.MiOT;
+  const [siid, aiid] =
+    (typeof engine.getSpeakerCapability === 'function'
+      ? engine.getSpeakerCapability(did)?.ttsCommand
+      : undefined) ?? [5, 3];
+  return MiOT.doAction(siid, aiid, text);
+}
+
+/**
  * @type {import('@mi-gpt/next').MiGPTConfig}
  */
 export default {
   debug: false, // 是否开启调试模式
-  speaker: {
-    /**
-     * 小爱音箱在米家中设置的名称
-     *
-     * 如果提示找不到设备，请打开调试模式获取设备真实的 name、miotDID 或 mac 地址填入
-     */
-    did: '小爱音箱Play',
-    /**
-     * 小米 ID（一串数字）
-     *
-     * 注意：不是手机号或邮箱，请在小米账号「个人信息」-「小米 ID」查看
-     */
-    userId: 'xiaomizhanghaoidxxxx',
-    /**
-     * 小米账号登录密码
-     *
-     * 如果提示登录失败，请使用 passToken 登录
-     */
-    password: 'xiaomizhanghaomimaxxxx',
-    /**
-     * （可选）小米账号 passToken
-     *
-     * 获取教程：https://github.com/idootop/migpt-next/issues/4
-     */
-    passToken: 'xiaomizhanghaopasstokenxxxx',
-  },
+  /**
+   * 音箱配置（支持多音箱，兼容多个型号）
+   *
+   * 支持两种写法：
+   * 1. speaker: { did, userId, password, ... }              单个音箱（兼容旧版）
+   * 2. speaker: [{ did: '音箱A', ... }, { did: '音箱B', ... }] 多个音箱（不同型号可混搭）
+   *    也可以写成 speakers: [{ ... }, { ... }]
+   *
+   * 多个音箱共用同一个小米账号时，只需分别填写每个音箱的 did；
+   * 每个音箱也可以单独使用不同的账号（userId/password/passToken）
+   */
+  speaker: [
+    {
+      /**
+       * 音箱标识：可以填米家里的「设备名称」「备注名」「miotDID」或「mac 地址」，任选其一
+       *
+       * - 名称：'客厅音箱'（与米家里显示的完全一致，注意错别字/空格/大小写，
+       *   比如「音响」和「音箱」不是一回事）
+       * - miotDID：纯数字串，改名后也不会失效，多音箱时最稳
+       * - mac：'AA:BB:CC:DD:EE:FF'（大小写、分隔符不敏感）
+       *
+       * ⚠️ 多音箱时每项必须能唯一区分：如果两台音箱名称相同，
+       * 请改用各自的 miotDID 或 mac，否则会被当成同一台设备跳过。
+       *
+       * 找不到设备时，打开下面的 debug 选项，日志里会打印真实的 name / miotDID / mac。
+       */
+      did: '小爱音箱Play',
+      /**
+       * （可选）音箱型号，一般会自动识别，识别不到时可手动填写
+       *
+       * 不同型号的 TTS/唤醒指令不一样，内置对照表如下：
+       * - LX01（小爱音箱）      TTS [5, 1]  唤醒 [5, 3]
+       * - S12A（小爱音箱 二代） TTS [5, 1]  唤醒 [5, 3]
+       * - LX06（小爱音箱 Pro）  TTS [5, 3]  唤醒 [5, 4]
+       * - L09A（小爱音箱 Art）  TTS [5, 3]  唤醒 [5, 4]
+       * - X08A（小爱音箱 Play） TTS [5, 3]  唤醒 [5, 5]
+       * - X08E（小爱音箱 Play） TTS [5, 3]  唤醒 [5, 4]
+       * - L05B / L05C / L06A / L07A   TTS [5, 3]  唤醒 [5, 4]
+       * - 智能家庭屏系列        TTS [5, 3]  唤醒 [5, 4]
+       *
+       * 未收录的型号默认按 TTS [5, 3] / 唤醒 [5, 4] 处理
+       */
+      // model: 'LX06',
+      /**
+       * （可选）自定义指令，特殊固件需要时可以覆盖，格式：[siid, aiid]
+       */
+      // ttsCommand: [5, 3],
+      // wakeUpCommand: [5, 4],
+      /**
+       * 小米 ID（一串数字）
+       *
+       * 注意：不是手机号或邮箱，请在小米账号「个人信息」-「小米 ID」查看
+       */
+      userId: 'xiaomizhanghaoidxxxx',
+      /**
+       * 小米账号登录密码
+       *
+       * 如果提示登录失败，请使用 passToken 登录
+       */
+      password: 'xiaomizhanghaomimaxxxx',
+      /**
+       * （可选）小米账号 passToken
+       *
+       * 获取教程：https://github.com/idootop/migpt-next/issues/4
+       */
+      passToken: 'xiaomizhanghaopasstokenxxxx',
+    },
+    {
+      // 第二个音箱（不同型号也可以），不需要时删除即可
+      did: '小爱音箱Pro',
+      // model: 'LX06', // 一般会自动识别，无需填写
+      userId: 'xiaomizhanghaoidxxxx',
+      password: 'xiaomizhanghaomimaxxxx',
+    },
+  ],
   openai: {
     enableProxy: true,
     /**
@@ -107,6 +176,9 @@ export default {
   callAIKeywords: [''],
   /**
    * 自定义消息回复
+   *
+   * 多音箱场景：消息轮询会自动在 msg.metadata.did 标记消息来自哪个音箱，
+   * 通过 engine.getSpeaker(msg) / engine.getMiOT(did) 可路由到对应的音箱
    */
   async onMessage(engine, msg) {
     if (!engine.config.callAIKeywords?.some((keyword) => msg.text.startsWith(keyword))) {
@@ -123,17 +195,23 @@ export default {
       console.log(`🤖 小爱无法回答，切换外接 LLM：${xiaoAIAnswer}`);
     }
 
-    // L05B 的 MiNA TTS 无法稳定抢占小爱原生回复，改用 MIoT 的“播放文本”动作。
-    const stopped = await engine.speaker.abortXiaoAI();
+    // 消息来源音箱（多音箱时路由到对应的音箱；找不到来源时保持兼容旧行为）
+    const speaker = engine.getSpeaker ? engine.getSpeaker(msg) : engine.speaker;
+    if (msg.metadata?.did) {
+      console.log(`📢 来自音箱（${msg.metadata.did}）的消息：${msg.text}`);
+    }
+
+    // 不少型号的 MiNA TTS 无法稳定抢占小爱原生回复，改用 MIoT 的“播放文本”动作。
+    const stopped = await speaker.abortXiaoAI();
     if (!stopped) {
       console.warn('⚠️ 未能确认已停止小爱原生播报，继续切换外接 LLM');
     }
-    await engine.MiOT.doAction(5, 3, '正在思考中');
+    await speak(engine, msg, '正在思考中');
 
     const { text } = await engine.askAI(msg, { stream: false });
     if (text) {
       console.log(`🔊 ${text}`);
-      await engine.MiOT.doAction(5, 3, text);
+      await speak(engine, msg, text);
     }
 
     // 阻止引擎再走默认的 MiNA TTS 链路。

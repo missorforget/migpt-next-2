@@ -22,6 +22,12 @@ export interface IReply {
    * 使用默认的消息处理逻辑
    */
   default?: boolean;
+  /**
+   * （多音箱场景）指定回复到哪个音箱
+   *
+   * 填写配置里对应音箱的 did；不填时回复到消息来源的音箱
+   */
+  did?: string;
 }
 
 export interface ISpeaker {
@@ -58,6 +64,9 @@ export abstract class BaseEngine {
   status: 'running' | 'stopped' = 'stopped';
 
   abstract config: Record<string, any>;
+  /**
+   * Speaker（单音箱或管理多个音箱的多 Speaker 管理器）
+   */
   abstract speaker: ISpeaker;
 
   abstract start(config: this['config']): Promise<void>;

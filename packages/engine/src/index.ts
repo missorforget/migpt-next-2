@@ -3,7 +3,7 @@ import type { ChatConfig } from '@mi-gpt/chat/config';
 import { OpenAI } from '@mi-gpt/openai';
 import { deepMerge, sleep } from '@mi-gpt/utils';
 import { jsonEncode } from '@mi-gpt/utils/parse';
-import { BaseEngine, type IReply } from './base.js';
+import { BaseEngine, type ISpeaker, type IReply } from './base.js';
 
 // @ts-ignore
 import { version } from '../package.json';
@@ -47,6 +47,16 @@ const kDefaultConfig: EngineConfig<BaseEngine> = {
 export abstract class MiGPTEngine extends BaseEngine {
   config: EngineConfig<this> = {};
 
+  /**
+   * 获取消息对应的 Speaker
+   *
+   * 多音箱场景下，可根据消息来源（如 msg.metadata.did）路由到对应的音箱；
+   * 默认返回 engine.speaker（单音箱或广播所有音箱的 Speaker 管理器）
+   */
+  getSpeaker(msg?: IMessage): ISpeaker {
+    return this.speaker;
+  }
+
   async start(config?: EngineConfig<this>) {
     console.log(kBannerASCII);
 
@@ -85,11 +95,11 @@ export abstract class MiGPTEngine extends BaseEngine {
     }
 
     if (this.config.callAIKeywords?.some((k) => msg.text.startsWith(k))) {
-      // 打断原来的小爱回复
-      await this.speaker.abortXiaoAI();
+      // 打断原来的小爱回复（多音箱时路由到消息来源的音箱）
+      await this.getSpeaker(msg).abortXiaoAI();
 
       // 先播放思考提示，防止小爱超时说"不知道"
-      await this.speaker.play({ text: '正在思考中' });
+      await this.getSpeaker(msg).play({ text: '正在思考中' });
       // 等待 500ms 让 TTS 开始播放
       await sleep(500);
 
@@ -124,9 +134,14 @@ export abstract class MiGPTEngine extends BaseEngine {
       return;
     }
 
+    // 多音箱：优先回复到 reply.did 指定的音箱，否则回复到消息来源的音箱
+    const speaker = this.getSpeaker(
+      reply?.did ? { ...ctx, metadata: { ...ctx.metadata, did: reply.did } } : ctx,
+    );
+
     if (url || text) {
       console.log(`🔊 ${url || text}`);
-      return this.speaker.play({ url, text, blocking: true });
+      return speaker.play({ url, text, blocking: true });
     }
 
     while (true) {
@@ -140,7 +155,7 @@ export abstract class MiGPTEngine extends BaseEngine {
           return;
         }
         console.log(`🔊 ${next}`);
-        await this.speaker.play({ text: next, blocking: true });
+        await speaker.play({ text: next, blocking: true });
       }
       await sleep(100);
     }

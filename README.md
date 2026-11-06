@@ -68,6 +68,70 @@ docker run -it --rm -v $(pwd)/config.js:/app/config.js migpt-next:local   # 运�
 - 改完配置后重跑：直接再执行第 4 步的 `docker run` 命令即可；
 - 想 24 小时后台常驻：把 `docker run` 改成 `docker run -d --restart=always -v $(pwd)/config.js:/app/config.js migpt-next:local`（去掉 `-it --rm`，加 `-d --restart=always`），这样服务会在后台一直运行，设备重启后也会自动拉起。
 
+## 多音箱 & 多型号
+
+`speaker` 支持数组，一次接入多个音箱（不同型号可以混搭）：
+
+```js
+speaker: [
+  { did: "客厅的小爱音箱", userId: "小米ID", password: "密码" },
+  { did: "卧室的小爱音箱", userId: "小米ID", passToken: "passToken" },
+],
+```
+
+- 单音箱继续用对象写法即可，完全兼容旧配置；
+- 每个音箱的对话消息会被单独轮询，**谁被唤醒就在谁身上回答**，不会串音；
+- 多个音箱共用一个小米账号时，只需分别填写各自的 `did`。
+
+### `did` 可以填什么
+
+`did` 会被拿去和设备的这些字段逐一比对，命中任意一个即可：
+
+| 可填的值 | 举例 | 说明 |
+| --- | --- | --- |
+| 设备名称 | `客厅音箱` | 与米家里显示的名称完全一致（错别字、空格、大小写都算不同） |
+| 备注名 / 别名 | `客厅的` | 仅 MiNA 侧支持 |
+| miotDID | `123456789` | 纯数字，改设备名也不受影响，**多音箱首选** |
+| mac 地址 | `AA:BB:CC:DD:EE:FF` | 大小写、`:` `-` 分隔符不敏感 |
+| 设备 ID | `xxxxx` | MiNA 的 deviceID |
+
+同时，`engine.say(text, did)` / `engine.wakeUp(did)` / `engine.getMiOT(did)` 的 `did` 参数也支持上面任意一种写法，所以配置里填了 `miotDID`，业务代码里传设备名同样能路由到正确的音箱。
+
+⚠️ **多音箱时每项的 `did` 必须能唯一区分**。两台音箱在米家里同名（比如都叫「小爱音箱」）时，请分别改用 miotDID 或 mac，否则会被识别成同一台设备并跳过（启动日志会给出警告）。
+
+不同型号的 MIoT 指令不一致，引擎会自动按型号适配，无需手动配置：
+
+| 型号 | TTS 指令 | 唤醒指令 |
+| --- | --- | --- |
+| LX01（小爱音箱） | `[5, 1]` | `[5, 3]` |
+| S12A（小爱音箱 第二代） | `[5, 1]` | `[5, 3]` |
+| LX06（小爱音箱 Pro） | `[5, 3]` | `[5, 4]` |
+| L09A（小爱音箱 Art） | `[5, 3]` | `[5, 4]` |
+| X08A（小爱音箱 Play） | `[5, 3]` | `[5, 5]` |
+| X08E（小爱音箱 Play） | `[5, 3]` | `[5, 4]` |
+| L05B / L05C / L06A / L07A | `[5, 3]` | `[5, 4]` |
+| X10A（智能家庭屏 10）/ 智能家庭屏系列 | `[5, 3]` | `[5, 4]` |
+
+型号从设备信息里自动识别（`xiaomi.wifispeaker.lx06` → `LX06`，`xiaomi.wifispeaker.s12` → `S12A`）。如果识别不到或者固件特殊，也可以在配置里强制指定或覆盖：
+
+```js
+speaker: [
+  {
+    did: "客厅的小爱音箱",
+    model: "LX01",            // 可选：手动指定型号
+    ttsCommand: [5, 1],        // 可选：自定义 TTS 指令 [siid, aiid]
+    wakeUpCommand: [5, 3],     // 可选：自定义唤醒指令 [siid, aiid]
+  },
+],
+```
+
+业务代码里想让音箱播报，用引擎封装好的方法即可（自动选对型号指令）：
+
+```js
+await engine.say("你好呀", msg.metadata?.did); // 播报文字
+await engine.wakeUp(msg.metadata?.did);        // 唤醒音箱
+```
+
 > 💡 想让它联网回答实时问题？在 `config.js` 里把 `openai.webSearch.enabled` 设为 `true` 即可。
 
 ## 其他部署方式
