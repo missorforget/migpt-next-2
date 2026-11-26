@@ -6,7 +6,11 @@ import type { Prettify } from '@mi-gpt/utils/typing';
 import { MiMessage } from './message.js';
 import type { MiSpeakerCapability } from './model.js';
 import { kDefaultSpeakerCapability } from './model.js';
-import { MiService, type MiSpeakerDeviceConfig } from './service.js';
+import {
+  MiService,
+  type MiAccountConfig,
+  type MiSpeakerDeviceConfig,
+} from './service.js';
 import { MiSpeaker } from './speaker.js';
 
 export { extractNativeAnswer } from './native-answer.js';
@@ -22,7 +26,13 @@ export {
 } from './model.js';
 export type { MiSpeakerCapability } from './model.js';
 export { MiSpeaker } from './speaker.js';
-export type { MiDeviceServices, MiSpeakerDeviceConfig } from './service.js';
+export type { MiDeviceServices, MiSpeakerDeviceConfig, MiAccountConfig, MiServiceInitConfig } from './service.js';
+export {
+  hasAccountCredentials,
+  getSharedAccount,
+  inheritSpeakerCredentials,
+  normalizeSpeakerConfigs,
+} from './service.js';
 
 /**
  * 单个音箱的配置（不同型号的音箱只需分别填写对应的 did）
@@ -42,13 +52,24 @@ export type MiGPTConfig = Prettify<
   EngineConfig<MiJiaEngine> & {
     debug?: boolean;
     /**
+     * 共享的小米账号（推荐多个音箱用同一个账号时写在这里，只需写一次）
+     *
+     * 音箱配置里仍可单独填写 userId/password/passToken 来使用不同账号
+     */
+    account?: MiAccountConfig;
+    /** 共享账号的简写（与 account 二选一） */
+    userId?: string;
+    password?: string;
+    passToken?: string;
+    /**
      * 音箱配置
      *
      * 支持两种写法：
      * - 单个音箱：speaker: { did, userId, password, ... }（兼容旧版）
-     * - 多个音箱：speaker: [{ did: '音箱A', ... }, { did: '音箱B', ... }]
+     * - 多个音箱：speaker: [{ did: '音箱A' }, { did: '音箱B' }]
      *
-     * 多个音箱支持混搭不同型号，共用同一个小米账号时只需分别填写 did
+     * 多个音箱支持混搭不同型号；共用一个小米账号时，账号写在顶层 account
+     * 或第一个音箱里即可，其余音箱只需填写各自的 did
      */
     speaker?: MiSpeakerConfig | MiSpeakerConfig[];
     /**
@@ -60,8 +81,9 @@ export type MiGPTConfig = Prettify<
 
 const kDefaultMiGPTConfig: MiGPTConfig = {
   debug: false,
-  // 默认仅提供全局轮询间隔，音箱具体配置（did 等）由用户传入
-  speaker: { heartbeat: 500 } as MiGPTConfig['speaker'],
+  // 不在这里放 speaker 占位对象：否则只用 speakers 数组配置时，
+  // 这个没有 did 的占位项会被当成一台音箱并打印「缺少 did」警告。
+  // 轮询间隔的默认值在 start() 里处理。
 };
 
 class MiJiaEngine extends MiGPTEngine {

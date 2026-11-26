@@ -17,6 +17,94 @@ import { assert } from './utils.js';
 export type MiServiceConfig = _MiServiceConfig;
 
 /**
+ * 小米账号凭据（可放在顶层供所有音箱共用）
+ */
+export interface MiAccountConfig {
+  /** 小米 ID（一串数字，不是手机号或邮箱） */
+  userId?: string;
+  /** 小米账号密码 */
+  password?: string;
+  /** 小米账号 passToken（与 userId + password 二选一） */
+  passToken?: string;
+}
+
+/**
+ * 一组账号凭据是否完整可用
+ */
+export function hasAccountCredentials(account?: MiAccountConfig): boolean {
+  return !!account?.passToken || (!!account?.userId && !!account?.password);
+}
+
+/**
+ * 取出凭据字段（避免把 did / model 等其他配置一起继承过去）
+ */
+function pickAccount(account?: MiAccountConfig): MiAccountConfig {
+  const result: MiAccountConfig = {};
+  if (account?.userId) {
+    result.userId = account.userId;
+  }
+  if (account?.password) {
+    result.password = account.password;
+  }
+  if (account?.passToken) {
+    result.passToken = account.passToken;
+  }
+  return result;
+}
+
+/**
+ * 提取共享账号：顶层 account 优先，其次顶层的 userId/password/passToken，
+ * 最后才是数组里第一个填了账号的音箱（兼容旧写法）
+ */
+export function getSharedAccount(config: MiAccountConfig & { account?: MiAccountConfig }): MiAccountConfig {
+  const nested = pickAccount(config?.account);
+  if (hasAccountCredentials(nested)) {
+    return nested;
+  }
+  const flat = pickAccount(config);
+  if (hasAccountCredentials(flat)) {
+    return flat;
+  }
+  return {};
+}
+
+/**
+ * 账号凭据继承
+ *
+ * 多个音箱共用一个小米账号时，只需分别填写各自的 did，账号写一次即可：
+ * 1. 顶层 `account: { userId, password }`（推荐）
+ * 2. 顶层 `userId` / `password` / `passToken`
+ * 3. 数组里第一个音箱里写账号（旧写法）
+ *
+ * 某个音箱自带完整账号时优先用它，因此仍支持多音箱分属不同账号。
+ * 只写了半套（如只有 userId 没有 password）视为配置错误，直接沿用共享账号，
+ * 避免把 A 账号的 userId 和 B 账号的 password 拼在一起。
+ */
+export function inheritSpeakerCredentials(
+  configs: MiSpeakerDeviceConfig[],
+  sharedAccount: MiAccountConfig,
+): MiSpeakerDeviceConfig[] {
+  const firstLocal = pickAccount(configs.find((c) => hasAccountCredentials(c)));
+  const fallback = hasAccountCredentials(sharedAccount)
+    ? pickAccount(sharedAccount)
+    : firstLocal;
+  if (!hasAccountCredentials(fallback)) {
+    return configs;
+  }
+  return configs.map((item) => {
+    if (hasAccountCredentials(item)) {
+      return item;
+    }
+    if (item.userId || item.password || item.passToken) {
+      console.warn(
+        `⚠️ 音箱（${item.did}）的账号信息不完整（userId 和 password 需成对填写，或只用 passToken），已改用共享账号`,
+      );
+    }
+    return { ...item, ...fallback };
+  });
+}
+
+/**
  * 单个音箱的配置（不同型号的音箱只需分别填写对应的 did）
  */
 export interface MiSpeakerDeviceConfig extends MiServiceConfig {
@@ -90,6 +178,17 @@ function toDeviceKey(value?: string): string | undefined {
   return key || undefined;
 }
 
+/**
+ * MiService.init 的配置：账号可放在顶层供所有音箱共用
+ */
+export interface MiServiceInitConfig extends MiAccountConfig {
+  debug?: boolean;
+  /** 共享的小米账号（推荐多音箱场景使用） */
+  account?: MiAccountConfig;
+  speaker?: MiSpeakerDeviceConfig | MiSpeakerDeviceConfig[];
+  speakers?: MiSpeakerDeviceConfig[];
+}
+
 class _MiService {
   /**
    * 所有已初始化的音箱服务（支持多个音箱、兼容多个型号）
@@ -153,14 +252,14 @@ class _MiService {
    *
    * @param config.speaker 单个音箱配置，或音箱配置数组
    * @param config.speakers 音箱配置数组（与 speaker 二选一，也可同时使用）
+   * @param config.account 共享的小米账号（多音箱只需写一次，其余音箱只填 did）
    */
-  async init(config: {
-    debug?: boolean;
-    speaker?: MiSpeakerDeviceConfig | MiSpeakerDeviceConfig[];
-    speakers?: MiSpeakerDeviceConfig[];
-  }) {
+  async init(config: MiServiceInitConfig) {
     const { debug = false } = config;
-    const configs = normalizeSpeakerConfigs(config);
+    const configs = inheritSpeakerCredentials(
+      normalizeSpeakerConfigs(config),
+      getSharedAccount(config),
+    );
 
     assert(configs.length > 0, '❌ Speaker 缺少配置参数');
 
@@ -168,10 +267,13 @@ class _MiService {
       const speaker = { ...item, debug, timeout: Math.max(1000, item.timeout ?? 5000) };
 
       assert(!!speaker.did, '❌ Speaker 缺少 did 参数');
-      assert(
-        !!speaker.passToken || (!!speaker.userId && !!speaker.password),
-        `❌ Speaker（${speaker.did}）缺少 passToken 或 userId 和 password`,
-      );
+      if (!hasAccountCredentials(speaker)) {
+        // 也可能是复用 .mi.json 里缓存的登录态，不直接报错，交给 getMiService 判断
+        console.warn(
+          `⚠️ 音箱（${speaker.did}）未配置小米账号，将尝试使用 .mi.json 里的登录缓存。` +
+            `多个音箱共用账号时，请在顶层 account 或第一个音箱里写一次 userId + password（或 passToken）即可`,
+        );
+      }
 
       let MiNA = await getMiNA(speaker);
       let MiOT = await getMIoT(speaker);
@@ -190,8 +292,9 @@ class _MiService {
       assert(
         !!MiNA && !!MiOT,
         `❌ 初始化音箱（${speaker.did}）Mi Services 失败：` +
-          `请确认该值和米家里的设备名称 / 备注名 / miotDID / mac 完全一致` +
-          `（注意「音响」与「音箱」、空格、大小写），或打开 debug 查看设备列表`,
+          `① 确认小米账号（userId/password 或 passToken）正确；` +
+          `② 确认 did 与米家设备名称 / 备注名 / miotDID / mac 完全一致` +
+          `（注意「音响」与「音箱」、空格、大小写），可打开 debug 查看设备列表`,
       );
 
       // 自动识别型号：MIoT 的 model（xiaomi.wifispeaker.lx06）/ MiNA 的 hardware（LX06）

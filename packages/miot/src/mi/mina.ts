@@ -29,6 +29,11 @@ export class MiNA {
     );
     if (device) {
       account.device = { ...device, deviceId: device.deviceID };
+    } else if (account.did) {
+      // 关键：多个音箱共用一个账号时，.mi.json 里缓存着上一个音箱的 device。
+      // 若本次 did 没匹配到却留着旧 device，会静默控制到错误的音箱，
+      // 而且 account.ts 的「找不到设备」检查也会被绕过。
+      (account as any).device = undefined;
     }
     return account;
   }

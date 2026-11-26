@@ -29,16 +29,44 @@ async function speak(engine, msg, text) {
  */
 export default {
   debug: false, // 是否开启调试模式
+
+  /**
+   * 共享的小米账号：多个音箱共用一个账号时，只需在这里写一次，
+   * 下面 speaker 数组里的每台音箱只填各自的 did 即可（userId / password 为可选项）。
+   *
+   * 也兼容旧写法：把账号写在数组里第一个音箱上，其余音箱会自动继承。
+   * 如果某台音箱属于另一个小米账号，在它自己的配置里单独写账号即可覆盖。
+   */
+  account: {
+    /**
+     * 小米 ID（一串数字）
+     *
+     * 注意：不是手机号或邮箱，请在小米账号「个人信息」-「小米 ID」查看
+     */
+    userId: 'xiaomizhanghaoidxxxx',
+    /**
+     * 小米账号登录密码
+     *
+     * 如果提示登录失败，请改用 passToken 登录
+     */
+    password: 'xiaomizhanghaomimaxxxx',
+    /**
+     * （可选）小米账号 passToken，与 userId + password 二选一
+     *
+     * 获取教程：https://github.com/idootop/migpt-next/issues/4
+     */
+    // passToken: 'xiaomizhanghaopasstokenxxxx',
+  },
+
   /**
    * 音箱配置（支持多音箱，兼容多个型号）
    *
    * 支持两种写法：
    * 1. speaker: { did, userId, password, ... }              单个音箱（兼容旧版）
-   * 2. speaker: [{ did: '音箱A', ... }, { did: '音箱B', ... }] 多个音箱（不同型号可混搭）
+   * 2. speaker: [{ did: '音箱A' }, { did: '音箱B' }]         多个音箱（不同型号可混搭）
    *    也可以写成 speakers: [{ ... }, { ... }]
    *
-   * 多个音箱共用同一个小米账号时，只需分别填写每个音箱的 did；
-   * 每个音箱也可以单独使用不同的账号（userId/password/passToken）
+   * 共用一个小米账号时只需分别填写 did；每台音箱也能单独配置不同账号
    */
   speaker: [
     {
@@ -53,7 +81,7 @@ export default {
        * ⚠️ 多音箱时每项必须能唯一区分：如果两台音箱名称相同，
        * 请改用各自的 miotDID 或 mac，否则会被当成同一台设备跳过。
        *
-       * 找不到设备时，打开下面的 debug 选项，日志里会打印真实的 name / miotDID / mac。
+       * 找不到设备时，打开上面的 debug 选项，日志里会打印真实的 name / miotDID / mac。
        */
       did: '小爱音箱Play',
       /**
@@ -77,31 +105,13 @@ export default {
        */
       // ttsCommand: [5, 3],
       // wakeUpCommand: [5, 4],
-      /**
-       * 小米 ID（一串数字）
-       *
-       * 注意：不是手机号或邮箱，请在小米账号「个人信息」-「小米 ID」查看
-       */
-      userId: 'xiaomizhanghaoidxxxx',
-      /**
-       * 小米账号登录密码
-       *
-       * 如果提示登录失败，请使用 passToken 登录
-       */
-      password: 'xiaomizhanghaomimaxxxx',
-      /**
-       * （可选）小米账号 passToken
-       *
-       * 获取教程：https://github.com/idootop/migpt-next/issues/4
-       */
-      passToken: 'xiaomizhanghaopasstokenxxxx',
     },
     {
-      // 第二个音箱（不同型号也可以），不需要时删除即可
+      // 第二个音箱（不同型号也可以），共用顶层 account，不需要重复写账号
       did: '小爱音箱Pro',
       // model: 'LX06', // 一般会自动识别，无需填写
-      userId: 'xiaomizhanghaoidxxxx',
-      password: 'xiaomizhanghaomimaxxxx',
+      // 如果这台音箱属于另一个账号，在这里单独写即可覆盖顶层：
+      // userId: '另一个小米ID', password: '另一个密码',
     },
   ],
   openai: {

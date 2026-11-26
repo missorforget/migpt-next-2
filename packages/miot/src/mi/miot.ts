@@ -30,6 +30,9 @@ export class MIoT {
     );
     if (device) {
       account.device = device;
+    } else if (account.did) {
+      // 同 MiNA.getDevice：清掉 .mi.json 里缓存的旧设备，避免共用账号时串设备
+      (account as any).device = undefined;
     }
     return account;
   }
